@@ -6,116 +6,106 @@ app = Flask(__name__)
 SOURCE_URL = "https://wtxmd52.tele68.com/v1/txmd5/sessions"
 
 
-# ================== CÁC THUẬT TOÁN DỰ ĐOÁN ==================
-def algo_alternate_pro(history):
-    if len(history) < 6:
+# ================== 10 THUẬT TOÁN DỰ ĐOÁN MỚI ==================
+def algo_bet(history):
+    if len(history) < 3:
         return "Tài"
+    streak = 1
+    for i in range(len(history)-1, 0, -1):
+        if history[i] == history[i-1]:
+            streak += 1
+        else:
+            break
+    if streak >= 3:
+        return history[-1]
+    return "Tài" if history[-1] == "Xỉu" else "Xỉu"
+
+
+def algo_dao(history):
+    if len(history) < 6:
+        return "Xỉu"
     flips = sum(1 for i in range(1, 6) if history[-i] != history[-i-1])
     if flips >= 4:
         return "Tài" if history[-1] == "Xỉu" else "Xỉu"
     return history[-1]
 
 
-def algo_streak_lock(history):
-    if len(history) < 5:
+def algo_2_1(history):
+    if len(history) < 6:
         return "Tài"
-    streak = 1
-    for i in range(len(history)-2, -1, -1):
-        if history[i] == history[-1]:
-            streak += 1
-        else:
-            break
-    return history[-1] if streak >= 3 else ("Xỉu" if history[-1] == "Tài" else "Tài")
-
-
-def algo_reversal(history):
-    if len(history) < 5:
-        return "Tài"
-    if history[-1] == history[-2] == history[-3]:
-        return "Xỉu" if history[-1] == "Tài" else "Tài"
-    return history[-1]
-
-
-def algo_short_trend(history):
-    if len(history) < 8:
-        return "Tài"
-    last5 = history[-5:]
-    if last5.count("Tài") >= 4:
-        return "Tài"
-    elif last5.count("Xỉu") >= 4:
-        return "Xỉu"
+    last6 = history[-6:]
+    pattern = "".join("T" if x == "Tài" else "X" for x in last6)
+    if pattern.endswith("TTX") or pattern.endswith("XXT"):
+        return history[-1]
     return "Tài" if history[-1] == "Xỉu" else "Xỉu"
 
 
-def algo_cycle_balance(history):
-    if len(history) < 10:
+def algo_xenke(history):
+    if len(history) < 5:
         return "Tài"
-    last10 = history[-10:]
-    ratio = last10.count("Tài") / 10
-    if ratio > 0.65:
-        return "Xỉu"
-    elif ratio < 0.35:
-        return "Tài"
-    else:
-        return history[-1]
-
-
-def algo_pattern_mirror(history):
-    if len(history) < 8:
-        return "Tài"
-    last4 = history[-4:]
-    prev4 = history[-8:-4]
-    if last4 == prev4:
-        return "Xỉu" if history[-1] == "Tài" else "Tài"
+    alternating = all(history[i] != history[i-1] for i in range(-1, -5, -1))
+    if alternating:
+        return "Tài" if history[-1] == "Xỉu" else "Xỉu"
     return history[-1]
 
 
-def algo_symmetry(history):
+def algo_gay(history):
+    if len(history) < 7:
+        return "Xỉu"
+    middle = len(history) // 2
+    left = history[:middle]
+    right = history[middle:]
+    if left[-1] != right[0]:
+        return right[-1]
+    return history[-1]
+
+
+def algo_de(history):
+    if len(history) < 3:
+        return "Tài"
+    last3 = history[-3:]
+    return "Tài" if last3.count("Tài") > last3.count("Xỉu") else "Xỉu"
+
+
+def algo_repeat(history):
+    if len(history) < 6:
+        return "Xỉu"
+    return history[-3] if history[-6:-3] == history[-3:] else ("Tài" if history[-1] == "Xỉu" else "Xỉu")
+
+
+def algo_dao_kep(history):
+    if len(history) < 4:
+        return "Tài"
+    flips = [history[-i] != history[-i-1] for i in range(1, 4)]
+    if flips.count(True) >= 2:
+        return "Tài" if history[-1] == "Xỉu" else "Xỉu"
+    return history[-1]
+
+
+def algo_chuoi(history):
+    if len(history) < 8:
+        return "Tài"
+    last = history[-1]
+    streak = 1
+    for i in range(len(history)-2, -1, -1):
+        if history[i] == last:
+            streak += 1
+        else:
+            break
+    return last if streak >= 3 else ("Tài" if last == "Xỉu" else "Xỉu")
+
+
+def algo_smart_mix(history):
     if len(history) < 6:
         return "Tài"
-    if history[-1] == history[-3] and history[-2] == history[-4]:
-        return "Xỉu" if history[-1] == "Tài" else "Tài"
-    return history[-1]
-
-
-def algo_trongso(history):
-    if len(history) < 8:
-        return "Tài"
-    weights = [1, 2, 3, 4, 3, 2, 1, 1]
-    score = sum(w if h == "Tài" else -w for h, w in zip(history[-8:], weights))
-    if score > 5:
-        return "Tài"
-    elif score < -5:
-        return "Xỉu"
-    else:
-        return "Tài" if history[-1] == "Xỉu" else "Xỉu"
-
-
-def algo_cycle_reverse(history):
-    if len(history) < 10:
-        return "Tài"
-    last10 = history[-10:]
-    if last10[:5].count("Tài") > last10[5:].count("Tài"):
-        return "Xỉu"
-    else:
-        return "Tài"
-
-
-def algo_hybrid(history):
-    if len(history) < 8:
-        return "Tài"
-    last6 = history[-6:]
-    flips = sum(1 for i in range(1, 6) if last6[i] != last6[i-1])
-    ratio_tai = last6.count("Tài") / 6
-    if flips >= 4:
-        pred = "Tài" if history[-1] == "Xỉu" else "Xỉu"
-    elif ratio_tai > 0.66:
-        pred = "Xỉu"
-    elif ratio_tai < 0.33:
-        pred = "Tài"
-    else:
-        pred = history[-1]
-    return pred
+    weights = {
+        "bet": 1.2 if history[-1] == history[-2] else 0.8,
+        "dao": 1.1 if history[-1] != history[-2] else 0.9,
+        "de": 1.3 if history[-3:].count("Tài") > history[-3:].count("Xỉu") else 0.7,
+    }
+    score_tai = weights["bet"] + weights["de"]
+    score_xiu = weights["dao"] + (2 - weights["de"])
+    return "Tài" if score_tai >= score_xiu else "Xỉu"
 
 
 # ================== PHÂN TÍCH DỰ ĐOÁN ==================
@@ -124,16 +114,16 @@ def du_doan_tu_lichsu(history):
         return "Tài", 60
 
     algos = [
-        algo_alternate_pro,
-        algo_streak_lock,
-        algo_reversal,
-        algo_short_trend,
-        algo_cycle_balance,
-        algo_pattern_mirror,
-        algo_symmetry,
-        algo_trongso,
-        algo_cycle_reverse,
-        algo_hybrid
+        algo_bet,
+        algo_dao,
+        algo_2_1,
+        algo_xenke,
+        algo_gay,
+        algo_de,
+        algo_repeat,
+        algo_dao_kep,
+        algo_chuoi,
+        algo_smart_mix
     ]
 
     results = [algo(history) for algo in algos]
@@ -149,7 +139,7 @@ def du_doan_tu_lichsu(history):
 
 
 # ================== API CHÍNH ==================
-@app.route("/api/taixiumd5", methods=["GET"])
+@app.route("/", methods=["GET"])
 def get_prediction():
     try:
         res = requests.get(SOURCE_URL, timeout=10)
@@ -158,7 +148,6 @@ def get_prediction():
         if "list" not in data or len(data["list"]) < 10:
             return jsonify({"error": "Không đủ dữ liệu"}), 400
 
-        # Lấy danh sách lịch sử gần nhất (10 phiên)
         history_raw = data["list"][:20]
         history = ["Tài" if item["resultTruyenThong"].upper() == "TAI" else "Xỉu" for item in history_raw]
 
