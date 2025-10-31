@@ -3,143 +3,109 @@ import requests
 
 app = Flask(__name__)
 
+# ================== NGUỒN DỮ LIỆU ==================
 SOURCE_URL = "https://wtxmd52.tele68.com/v1/txmd5/sessions"
 
 
-# ================== 10 THUẬT TOÁN DỰ ĐOÁN MỚI ==================
-def algo_bet(history):
-    if len(history) < 3:
-        return "Tài"
-    streak = 1
-    for i in range(len(history)-1, 0, -1):
-        if history[i] == history[i-1]:
-            streak += 1
-        else:
-            break
-    if streak >= 3:
-        return history[-1]
-    return "Tài" if history[-1] == "Xỉu" else "Xỉu"
+# ================== THUẬT TOÁN DỰ ĐOÁN CHUẨN (VOTE AI) ==================
+def algo_vote_max_v3(history):
+    if len(history) < 10:
+        return {"prediction": "Tài", "confidence": 55}
 
+    # ========= 9 thuật toán con =========
+    def weighted_recent(h):
+        w_t = sum((i+1)/len(h) for i,v in enumerate(h[-10:]) if v=="Tài")
+        w_x = sum((i+1)/len(h) for i,v in enumerate(h[-10:]) if v=="Xỉu")
+        return "Tài" if w_t >= w_x else "Xỉu"
 
-def algo_dao(history):
-    if len(history) < 6:
-        return "Xỉu"
-    flips = sum(1 for i in range(1, 6) if history[-i] != history[-i-1])
-    if flips >= 4:
-        return "Tài" if history[-1] == "Xỉu" else "Xỉu"
-    return history[-1]
+    def long_chain_reverse(h):
+        last = h[-1]
+        chain = 1
+        for v in reversed(h[:-1]):
+            if v == last:
+                chain += 1
+            else:
+                break
+        return "Xỉu" if last=="Tài" and chain>=3 else ("Tài" if last=="Xỉu" and chain>=3 else last)
 
+    def alternation(h):
+        flips = sum(1 for i in range(1, 6) if h[-i]!=h[-i-1])
+        return "Tài" if flips >= 4 and h[-1]=="Xỉu" else ("Xỉu" if flips >=4 else h[-1])
 
-def algo_2_1(history):
-    if len(history) < 6:
-        return "Tài"
-    last6 = history[-6:]
-    pattern = "".join("T" if x == "Tài" else "X" for x in last6)
-    if pattern.endswith("TTX") or pattern.endswith("XXT"):
-        return history[-1]
-    return "Tài" if history[-1] == "Xỉu" else "Xỉu"
+    def pattern_repeat(h):
+        for size in range(2, min(6, len(h)//2)+1):
+            a = "".join(h[-size:])
+            b = "".join(h[-2*size:-size])
+            if a == b:
+                return h[-size]
+        return weighted_recent(h)
 
+    def momentum(h):
+        t = h[-5:].count("Tài")
+        return "Tài" if t>=3 else "Xỉu"
 
-def algo_xenke(history):
-    if len(history) < 5:
-        return "Tài"
-    alternating = all(history[i] != history[i-1] for i in range(-1, -5, -1))
-    if alternating:
-        return "Tài" if history[-1] == "Xỉu" else "Xỉu"
-    return history[-1]
+    def rebound(h):
+        if len(h)<5: return "Tài"
+        if h[-1]!=h[-2] and h[-3]==h[-4]:
+            return h[-3]
+        return h[-1]
 
+    def volatility(h):
+        flips = sum(1 for i in range(1, len(h)) if h[i]!=h[i-1])
+        ratio = flips / len(h)
+        return "Tài" if ratio < 0.45 else "Xỉu" if ratio > 0.55 else ("Xỉu" if h[-1]=="Tài" else "Tài")
 
-def algo_gay(history):
-    if len(history) < 7:
-        return "Xỉu"
-    middle = len(history) // 2
-    left = history[:middle]
-    right = history[middle:]
-    if left[-1] != right[0]:
-        return right[-1]
-    return history[-1]
+    def entropy(h):
+        t = h.count("Tài")
+        x = len(h) - t
+        diff = abs(t - x)
+        if diff <= len(h)//6:
+            return "Tài" if h[-1]=="Xỉu" else "Xỉu"
+        return "Tài" if t > x else "Xỉu"
 
+    def trend_lock(h):
+        recent = h[-8:]
+        if recent.count("Tài")>=6: return "Tài"
+        if recent.count("Xỉu")>=6: return "Xỉu"
+        return "Tài" if h[-1]=="Xỉu" else "Xỉu"
 
-def algo_de(history):
-    if len(history) < 3:
-        return "Tài"
-    last3 = history[-3:]
-    return "Tài" if last3.count("Tài") > last3.count("Xỉu") else "Xỉu"
+    # ========= Gộp & gán trọng số =========
+    algos = [weighted_recent, long_chain_reverse, alternation, pattern_repeat,
+             momentum, rebound, volatility, entropy, trend_lock]
 
+    votes = []
+    weights = []
 
-def algo_repeat(history):
-    if len(history) < 6:
-        return "Xỉu"
-    return history[-3] if history[-6:-3] == history[-3:] else ("Tài" if history[-1] == "Xỉu" else "Xỉu")
+    for fn in algos:
+        vote = fn(history)
+        votes.append(vote)
 
+        # Trọng số động: thuật toán nào “đoán đúng” nhiều trong 10 lần gần nhất thì được điểm cao
+        past_score = 0
+        for i in range(2, min(len(history), 12)):
+            sub = history[:-i]
+            if len(sub) < 8:
+                break
+            if fn(sub) == history[-i+1]:
+                past_score += 1
+        weights.append(max(1, past_score/3))
 
-def algo_dao_kep(history):
-    if len(history) < 4:
-        return "Tài"
-    flips = [history[-i] != history[-i-1] for i in range(1, 4)]
-    if flips.count(True) >= 2:
-        return "Tài" if history[-1] == "Xỉu" else "Xỉu"
-    return history[-1]
+    # Tổng hợp phiếu
+    total_T = sum(w for v,w in zip(votes,weights) if v=="Tài")
+    total_X = sum(w for v,w in zip(votes,weights) if v=="Xỉu")
 
+    prediction = "Tài" if total_T > total_X else "Xỉu"
+    confidence = int((abs(total_T - total_X) / (total_T + total_X)) * 100 + 60)
+    confidence = min(confidence, 95)  # không bao giờ vượt 95%
 
-def algo_chuoi(history):
-    if len(history) < 8:
-        return "Tài"
-    last = history[-1]
-    streak = 1
-    for i in range(len(history)-2, -1, -1):
-        if history[i] == last:
-            streak += 1
-        else:
-            break
-    return last if streak >= 3 else ("Tài" if last == "Xỉu" else "Xỉu")
-
-
-def algo_smart_mix(history):
-    if len(history) < 6:
-        return "Tài"
-    weights = {
-        "bet": 1.2 if history[-1] == history[-2] else 0.8,
-        "dao": 1.1 if history[-1] != history[-2] else 0.9,
-        "de": 1.3 if history[-3:].count("Tài") > history[-3:].count("Xỉu") else 0.7,
+    return {
+        "prediction": prediction,
+        "confidence": confidence
     }
-    score_tai = weights["bet"] + weights["de"]
-    score_xiu = weights["dao"] + (2 - weights["de"])
-    return "Tài" if score_tai >= score_xiu else "Xỉu"
 
 
-# ================== PHÂN TÍCH DỰ ĐOÁN ==================
-def du_doan_tu_lichsu(history):
-    if len(history) < 4:
-        return "Tài", 60
-
-    algos = [
-        algo_bet,
-        algo_dao,
-        algo_2_1,
-        algo_xenke,
-        algo_gay,
-        algo_de,
-        algo_repeat,
-        algo_dao_kep,
-        algo_chuoi,
-        algo_smart_mix
-    ]
-
-    results = [algo(history) for algo in algos]
-    tai = results.count("Tài")
-    xiu = results.count("Xỉu")
-
-    if tai > xiu:
-        return "Tài", int(60 + (tai - xiu) * 4)
-    elif xiu > tai:
-        return "Xỉu", int(60 + (xiu - tai) * 4)
-    else:
-        return history[-1], 65
-
-
-# ================== API CHÍNH ==================
-@app.route("/", methods=["GET"])
+# ================== API TRẢ KẾT QUẢ ==================
+@app.route("/api/taixiumd5", methods=["GET"])
 def get_prediction():
     try:
         res = requests.get(SOURCE_URL, timeout=10)
@@ -148,17 +114,23 @@ def get_prediction():
         if "list" not in data or len(data["list"]) < 10:
             return jsonify({"error": "Không đủ dữ liệu"}), 400
 
-        history_raw = data["list"][:20]
+        # Lấy 15 phiên gần nhất
+        history_raw = data["list"][:15]
         history = ["Tài" if item["resultTruyenThong"].upper() == "TAI" else "Xỉu" for item in history_raw]
 
+        # Dự đoán dựa trên lịch sử
+        result = algo_vote_max_v3(history)
+        du_doan = result["prediction"]
+        do_tin_cay = result["confidence"]
+
+        # Phiên mới nhất
         newest = data["list"][0]
         dices = newest.get("dices", [0, 0, 0])
         total = sum(dices)
         phien = newest.get("id", 0)
 
-        du_doan, do_tin_cay = du_doan_tu_lichsu(history)
-
         return jsonify({
+            "id": "tuananhdz",
             "phien": phien,
             "xuc_xac_1": dices[0],
             "xuc_xac_2": dices[1],
@@ -171,5 +143,6 @@ def get_prediction():
         return jsonify({"error": str(e)}), 500
 
 
+# ================== CHẠY SERVER ==================
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
